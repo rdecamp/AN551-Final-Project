@@ -1,6 +1,331 @@
 ---
-title: "Population Genetics of Olfaction"
+title: "Population Genetics of Olfactory Gene OR10G4"
 author: "Becca DeCamp"
 date: "4/21/2018"
 output: html_document
 ---
+
+
+
+This is going to be an exploration in population genetics in R basically, I'm going to try and take genomic data from 1KG and replicate some of the analyses that I learned to do last year with Lisa in Perl. The gene that I will be using as my guinea pig is the gene OR10G4, which was found by this paper (https://www.nature.com/articles/nn.3598) to have SNPs that are implicated in differences in olfactory phenotypes in humans. If all goes well, I'll be able to find differences in frequency between populations for some of these alleles, which means that they are being selected for in some environment for whatever reason. So, let's see if we can't get some of this stuff to work yall. Hopefully this time this shit won't crash my computer. 
+
+Ok so I'm gonna start out by getting some data in to R. I've used the Ensembl Data Slicer (http://grch37.ensembl.org/Homo_sapiens/Tools/DataSlicer) to get a VCF file of all of the SNPs in the gene OR10G4 (located on chr11:123,886,282-123,887,217 in the cytogenetic band 11q24.2). I'm going to use the package vcfR for the initial read-in of the data. 
+
+```{r}
+library(vcfR)
+
+OR10G4 <- read.vcfR("OR10G4.vcf.gz", verbose = TRUE)
+```
+
+I originally wanted to try creating a detailed DNAbin object here, like, with additional information besides the original vcfR object. I want to eventually learn how to attach a fasta file as a reference sequence to a DNAbin made from a vcfR object, but that will not happen with this project. Instead, you can *technically* make a DNAbin just from a vcfR object, so that's what I'm going to do for now. If there's errors in my analyses because my DNAbin lacks additional info, I apologize. So, here's my DNAbin object: 
+
+```{r}
+myDNA <- vcfR2DNAbin(OR10G4)
+```
+
+Ok, now that that is made, I'm going to do some experimental population genetic analyses using VCF file I have now, which contains all of the 1KG populations. Later, I will choose a couple to look at individually, but these analyses will be used as a) a place to test all of my analyses to make sure they work, and b) as something I can compare everything back to at the end. The tests I will be performing are: Hardy-Weinberg, Tajima's D (this is the analysis that uses the DNAbin object, so I hope this works...), Heterozygosity, and LD. 
+
+
+```{r}
+library(pegas)
+
+#hardy-weinberg test
+pegas.data <- vcfR2genind(OR10G4, sep = "[|/]")
+hw.test(pegas.data, B = 0)
+
+
+#Tajima's D test
+tajima.test(myDNA)
+
+#Heterozygosity
+het <- summary(pegas.data)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#LD (this one may get tricky)
+
+library(pegas)
+
+loci <- genind2loci(pegas.data)
+
+#So in order to check out LD in the way that I would like to by using the LDscan function, we need to know whether our data is "phased," which, I don't know what that means but it is apparently easier to work with phased data than unphased. Because there's apparently no easy way to "phase" the data from the file type I converted from, we may be shit out of luck on that front. That being said, I have an idea of how I want to do LD if our data is unphased. 
+
+is.phased(loci)
+
+#Welp, time to go with plan B, which is use the LD2 function. As I learned the hard way (lol), you specify the locus by which number SNP it is in the gene, and not by the SNP ID number. Since there are 73 SNPs in this gene, I'll just first look at whether there is LD between the first and last SNP. After that, I may just play around with other SNP numbers. 
+
+
+LD2(loci, locus = c(1, 73), details = TRUE)
+
+#Well that's shit. Let's try some more. 
+
+LD2(loci, locus = c(1, 30), details = TRUE)
+LD2(loci, locus = c(10, 73), details = TRUE)
+LD2(loci, locus = c(10, 30), details = TRUE)
+```
+
+So here is what I learned from doing this preliminary: 
+
+- There are 5 SNPs with siginificant P-vals (rs79057843, rs11219407, rs4084209, rs61908597, rs4936882). This means that globally, these 5 SNPs are not in HWE. Let's see how that compares to individual populations. 
+
+- There could have been global evidence of purifing selection, but the P-vals are not significant. Therefore, there is no selection happening on this gene globally. 
+
+- There is heterozygosity at several loci. This may possibly indicate something. Not sure what.
+
+- There is absolutely no linkage disequilibrium globally. I would have thought otherwise, because the location of this gene on chromosome 11 makes it incredibly likely that crossover is happening involving this gene. I will continue to look for LD, but am not expecting much. 
+
+
+For the rest of this study, I'm going to focus on one population from each broader region (Europe, Africa, Americas, South Asia, East Asia). I can separate these populations out with the Data Slicer, so I'm going to read in some population data separately. The populations I'm going with are: JPT (Japanese in Tokyo, Japan), FIN (Finnish in Finland), LWK (Luhya in Webuye, Kenya), PUR (Puerto Ricans from Puerto Rico), and PJL (Punjabi from Lahore, Pakistan). When I have all of those population separated out I will begin testing each of them for signatures of selection.
+
+
+```{r}
+#importing data for just the populations specified above
+
+JPT <- read.vcfR("JPT.vcf.gz", verbose = TRUE)
+JPT
+
+FIN <- read.vcfR("FIN.vcf.gz", verbose = TRUE)
+FIN
+
+LWK <- read.vcfR("LWK.vcf.gz", verbose = TRUE)
+LWK
+
+PUR <- read.vcfR("PUR.vcf.gz", verbose = TRUE)
+PUR
+
+PJL <- read.vcfR("PJL.vcf.gz", verbose = TRUE)
+PJL
+```
+
+Now that we have our separate population data, we can repeat our analyses with it. I will start with the JPT data. 
+
+```{r}
+#JPT
+
+library(pegas)
+
+#hardy-weinberg test
+pegas.JPT <- vcfR2genind(JPT, sep = "[|/]")
+hw.test(pegas.JPT, B = 0)
+#All of the alleles in this population are in HWE
+
+#Tajima's D test
+
+JPTdna <- vcfR2DNAbin(JPT)
+
+tajima.test(JPTdna)
+
+#D-value is 1.33, but P-value is not significant, so we cannot interpret this as selection. 
+
+#Heterozygosity
+het <- summary(pegas.JPT)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#Not sure if that's significant or not...
+
+#LD
+library(pegas)
+
+JPTloci <- genind2loci(pegas.JPT)
+
+LD2(JPTloci, locus = c(1, 73), details = TRUE)
+
+#Strange... I think this means there is absolutely 100 percent no LD...
+
+LD2(JPTloci, locus = c(10, 73), details = TRUE)
+LD2(JPTloci, locus = c(30, 73), details = TRUE)
+
+#Yeah, there's no LD here. 
+```
+
+Now I will do FIN:
+
+```{r}
+#hardy-weinberg test
+pegas.FIN <- vcfR2genind(FIN, sep = "[|/]")
+hw.test(pegas.FIN, B = 0)
+#No SNPs out of HWE here
+
+#Tajima's D test
+
+FINdna <- vcfR2DNAbin(FIN)
+tajima.test(FINdna)
+
+#D-val is greater than 0, but P-vals are not significant, so this is not interpreted as selection
+
+#Heterozygosity
+het <- summary(pegas.FIN)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#I think I need to compare all of the graphs for this to work? 
+
+#LD
+
+FINloci <- genind2loci(pegas.FIN)
+
+LD2(FINloci, locus = c(1, 73), details = TRUE)
+
+#Same as above... no LD. Will check other loci just to be sure.
+
+LD2(FINloci, locus = c(10, 73), details = TRUE)
+LD2(FINloci, locus = c(30, 73), details = TRUE)
+
+```
+
+Now I will do LWK
+
+```{r}
+#hardy-weinberg test
+pegas.LWK <- vcfR2genind(LWK, sep = "[|/]")
+hw.test(pegas.LWK, B = 0)
+#No SNPs out of HWE here
+
+#Tajima's D test
+
+LWKdna <- vcfR2DNAbin(LWK)
+tajima.test(LWKdna)
+
+#D-val is greater than 0, but P-vals are very not significant, so this is not interpreted as selection
+
+#Heterozygosity
+het <- summary(pegas.LWK)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#This one appears to have less heterozygosity than the rest... is that significant?
+
+#LD
+
+LWKloci <- genind2loci(pegas.LWK)
+
+LD2(LWKloci, locus = c(1, 73), details = TRUE)
+
+#Same as above. Nothing.
+
+LD2(LWKloci, locus = c(10, 73), details = TRUE)
+LD2(LWKloci, locus = c(30, 73), details = TRUE)
+
+```
+
+Now I will do PUR
+
+```{r}
+#hardy-weinberg test
+pegas.PUR <- vcfR2genind(PUR, sep = "[|/]")
+hw.test(pegas.PUR, B = 0)
+#rs4936881 is not in HWE, which, interestingly, is not one that is not in HWE globally. 
+
+#Tajima's D test
+
+PURdna <- vcfR2DNAbin(PUR)
+tajima.test(PURdna)
+
+#D-val is greater than 0, but P-vals are not significant, so this is not interpreted as selection
+
+#Heterozygosity
+het <- summary(pegas.PUR)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#possibly less heterozygosity than normal?
+
+#LD
+
+PURloci <- genind2loci(pegas.PUR)
+
+LD2(PURloci, locus = c(1, 73), details = TRUE)
+
+#Yep. None.
+
+LD2(PURloci, locus = c(10, 73), details = TRUE)
+LD2(PURloci, locus = c(30, 73), details = TRUE)
+
+```
+
+Finally, I will do PJL. 
+
+```{r}
+#hardy-weinberg test
+pegas.PJL <- vcfR2genind(PJL, sep = "[|/]")
+hw.test(pegas.PJL, B = 0)
+#technically all are in HWE, but there are a few SNPs that are close to not being in HWE.  
+
+#Tajima's D test
+
+PJLdna <- vcfR2DNAbin(PJL)
+tajima.test(PJLdna)
+
+#D-val is greater than 0, but P-vals are not significant, so this is not interpreted as selection
+
+#Heterozygosity
+het <- summary(pegas.PJL)
+het
+
+names(het)
+
+plot(het$Hobs, xlab="Loci number", ylab="Observed Heterozygosity", 
+     main="Observed heterozygosity per locus")
+
+plot(het$Hobs, het$Hexp, xlab="Hobs", ylab="Hexp", 
+     main="Expected heterozygosity as a function of observed heterozygosity per locus")
+
+#So it does seem that there are differences in heterozygosity in each of these populations, but what does that mean?
+
+#LD
+
+PJLloci <- genind2loci(pegas.PJL)
+
+LD2(PJLloci, locus = c(1, 73), details = TRUE)
+
+#:)
+
+LD2(PJLloci, locus = c(10, 73), details = TRUE)
+LD2(PJLloci, locus = c(30, 73), details = TRUE)
+
+
+```
+
+I still need to figure out LD... I will do that when I get home. But, here are some general comments: 
+
+- Globally, there are 5 SNPS (insert SNP IDs here) that are not in HWE. However, in looking at the 5 populations, only PUR has a SNP that is not in HWE, and it is not the same as any of the SNPs that are globally not in HWE. Therefore, more populations will need to be studied in order to determine which populations are influencing the SNPs that are in global HWE disequilibrium. 
+- Globally, the Tajima's D is not significant. But, population FIN was close to having a significant P-value for positive selection. Therefore, it would be of interest to look at the Tajima's D of other European (or even global) populations to see if there is a population that is experiencing positive selection. 
+- On the topic of Tajima's D: Glabally, the Tajima's D score was negative. Although the P-val wasn't statistically significant, this is the only time we have seen a negative Tajima's D. Maybe there is a population that is under extreme purifying selection? Again, something to look for. 
+- There has been shown to be no LD between any of the SNPs in this gene, both globally and on the population level. This has surpised me, considering the location of the gene on Chromosome 11. This means that there are no two SNPs that create a phenotype important enough to warrant their joint crossing over. This was probably to be expected, since humans do not rely on olfactory cues very much.
+- Finally, I need to compare all of the heterozygosity graphs, but all of them are fairly similar, but show distinct differences. I'm not sure of the significance of that, but I will ask. 
